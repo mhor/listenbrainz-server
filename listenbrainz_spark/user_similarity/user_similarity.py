@@ -14,6 +14,10 @@ from listenbrainz_spark import SparkSessionNotInitializedException, utils, path
 from listenbrainz_spark.exceptions import PathNotFoundException, FileNotFetchedException
 
 
+USER_IDS_TO_IGNORE = [ 7343, 11925, 11926, 319, 11448, 11514, 10041, 10996, 9443, 11558, 13959, 3780, 7401,
+                       10628, 10426, 13736, 10893, 10940, 6385, 12395, 5581, 11481, 10613, 11860, 12527,
+                       7297, 10489, 7834, 4963, 2048, 8554, 12988, 13169, 11515, 9393, 10722]
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,10 +57,15 @@ def threshold_similar_users(matrix: ndarray, max_num_users: int) -> List[Tuple[i
     rows, cols = matrix.shape
     similar_users = list()
 
+    user_id_index = { user_id:1 for user_id in USER_IDS_TO_IGNORE }
+
     # Calculate the minimum and maximum values
     max_similarity = None
     min_similarity = None
     for x in range(rows):
+        if x in user_id_index:
+            continue
+
         for y in range(cols):
 
             # Spark sometimes returns nan values and the way to get rid of them is to
