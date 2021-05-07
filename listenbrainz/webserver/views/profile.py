@@ -2,7 +2,7 @@ import listenbrainz.db.feedback as db_feedback
 import listenbrainz.db.stats as db_stats
 import listenbrainz.db.user as db_user
 import listenbrainz.webserver.rabbitmq_connection as rabbitmq_connection
-from listenbrainz.webserver.decorators import crossdomain
+from listenbrainz.webserver.decorators import crossdomain, web_listenstore_needed
 import os
 import re
 import ujson
@@ -113,6 +113,7 @@ def import_data():
         "api_url":  current_app.config["API_URL"],
         "lastfm_api_url": current_app.config["LASTFM_API_URL"],
         "lastfm_api_key": current_app.config["LASTFM_API_KEY"],
+        "sentry_dsn": current_app.config.get("LOG_SENTRY", {}).get("dsn")
     }
 
     return render_template(
@@ -162,6 +163,7 @@ def stream_json_array(elements):
 
 @profile_bp.route("/export", methods=["GET", "POST"])
 @login_required
+@web_listenstore_needed
 def export_data():
     """ Exporting the data to json """
     if request.method == "POST":
@@ -205,6 +207,7 @@ def export_feedback():
 
 @profile_bp.route('/delete', methods=['GET', 'POST'])
 @login_required
+@web_listenstore_needed
 def delete():
     """ Delete currently logged-in user from ListenBrainz.
 
@@ -235,6 +238,7 @@ def delete():
 
 @profile_bp.route('/delete-listens', methods=['GET', 'POST'])
 @login_required
+@web_listenstore_needed
 def delete_listens():
     """ Delete all the listens for the currently logged-in user from ListenBrainz.
 

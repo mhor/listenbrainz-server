@@ -3,7 +3,9 @@ import * as React from "react";
 import * as ReactDOM from "react-dom";
 import * as _ from "lodash";
 import * as io from "socket.io-client";
-import APIService from "./APIService";
+import * as Sentry from "@sentry/react";
+import APIServiceClass from "./APIService";
+import GlobalAppContext, { GlobalAppContextT } from "./GlobalAppContext";
 import BrainzPlayer from "./BrainzPlayer";
 import ErrorBoundary from "./ErrorBoundary";
 import Loader from "./components/Loader";
@@ -15,7 +17,6 @@ import {
 import { formatWSMessageToListen } from "./utils";
 
 export type RecentListensProps = {
-  apiUrl: string;
   latestListenTs: number;
   latestSpotifyUri?: string;
   listens?: Array<Listen>;
@@ -49,8 +50,10 @@ export default class RecentListens extends React.Component<
   RecentListensProps,
   RecentListensState
 > {
-  private APIService: APIService;
+  static contextType = GlobalAppContext;
+  declare context: React.ContextType<typeof GlobalAppContext>;
 
+  private APIService!: APIServiceClass;
   private brainzPlayer = React.createRef<BrainzPlayer>();
   private listensTable = React.createRef<HTMLTableElement>();
 
@@ -73,15 +76,15 @@ export default class RecentListens extends React.Component<
       recordingFeedbackMap: {},
     };
 
-    this.APIService = new APIService(
-      props.apiUrl || `${window.location.origin}/1`
-    );
-
     this.listensTable = React.createRef();
   }
 
   componentDidMount(): void {
     const { mode } = this.state;
+    // Get API instance from React context provided for in top-level component
+    const { APIService } = this.context;
+    this.APIService = APIService;
+
     if (mode === "listens") {
       this.connectWebsockets();
       // Listen to browser previous/next events and load page accordingly
@@ -225,7 +228,10 @@ export default class RecentListens extends React.Component<
     return Boolean(currentListen && _.isEqual(listen, currentListen));
   };
 
-  handleClickOlder = async () => {
+  handleClickOlder = async (event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
     const { oldestListenTs, user } = this.props;
     const { nextListenTs } = this.state;
     // No more listens to fetch
@@ -258,7 +264,10 @@ export default class RecentListens extends React.Component<
     window.history.pushState(null, "", `?max_ts=${nextListenTs}`);
   };
 
-  handleClickNewer = async () => {
+  handleClickNewer = async (event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
     const { latestListenTs, user } = this.props;
     const { previousListenTs } = this.state;
     // No more listens to fetch
@@ -291,7 +300,10 @@ export default class RecentListens extends React.Component<
     window.history.pushState(null, "", `?min_ts=${previousListenTs}`);
   };
 
-  handleClickNewest = async () => {
+  handleClickNewest = async (event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
     const { user, latestListenTs } = this.props;
     const { listens } = this.state;
     if (listens?.[0]?.listened_at >= latestListenTs) {
@@ -311,7 +323,10 @@ export default class RecentListens extends React.Component<
     window.history.pushState(null, "", "");
   };
 
-  handleClickOldest = async () => {
+  handleClickOldest = async (event?: React.MouseEvent) => {
+    if (event) {
+      event.preventDefault();
+    }
     const { user, oldestListenTs } = this.props;
     const { listens } = this.state;
     // No more listens to fetch
@@ -485,7 +500,7 @@ export default class RecentListens extends React.Component<
 
   afterListensFetch() {
     this.checkListensRange();
-    if (this.listensTable?.current) {
+    if (typeof this.listensTable?.current?.scrollIntoView === "function") {
       this.listensTable.current.scrollIntoView({ behavior: "smooth" });
     }
     this.setState({ loading: false });
@@ -511,11 +526,17 @@ export default class RecentListens extends React.Component<
       oldestListenTs,
       spotify,
       user,
-      apiUrl,
       currentUser,
       newAlert,
     } = this.props;
 
+    const isNewestButtonDisabled = listens?.[0]?.listened_at >= latestListenTs;
+    const isNewerButtonDisabled =
+      !previousListenTs || previousListenTs >= latestListenTs;
+    const isOlderButtonDisabled =
+      !nextListenTs || nextListenTs <= oldestListenTs;
+    const isOldestButtonDisabled =
+      listens?.[listens?.length - 1]?.listened_at <= oldestListenTs;
     return (
       <div role="main">
         <div className="row">
@@ -566,7 +587,6 @@ export default class RecentListens extends React.Component<
                           key={`${listen.listened_at}-${listen.track_metadata?.track_name}-${listen.track_metadata?.additional_info?.recording_msid}-${listen.user_name}`}
                           currentUser={currentUser}
                           isCurrentUser={currentUser?.name === user?.name}
-                          apiUrl={apiUrl}
                           listen={listen}
                           mode={mode}
                           currentFeedback={this.getFeedbackForRecordingMsid(
@@ -601,9 +621,7 @@ export default class RecentListens extends React.Component<
                   <ul className="pager" style={{ display: "flex" }}>
                     <li
                       className={`previous ${
-                        listens[0].listened_at >= latestListenTs
-                          ? "disabled"
-                          : ""
+                        isNewestButtonDisabled ? "disabled" : ""
                       }`}
                     >
                       <a
@@ -613,15 +631,18 @@ export default class RecentListens extends React.Component<
                           if (e.key === "Enter") this.handleClickNewest();
                         }}
                         tabIndex={0}
+                        href={
+                          isNewestButtonDisabled
+                            ? undefined
+                            : window.location.pathname
+                        }
                       >
                         &#x21E4;
                       </a>
                     </li>
                     <li
                       className={`previous ${
-                        !previousListenTs || previousListenTs >= latestListenTs
-                          ? "disabled"
-                          : ""
+                        isNewerButtonDisabled ? "disabled" : ""
                       }`}
                     >
                       <a
@@ -631,15 +652,18 @@ export default class RecentListens extends React.Component<
                           if (e.key === "Enter") this.handleClickNewer();
                         }}
                         tabIndex={0}
+                        href={
+                          isNewerButtonDisabled
+                            ? undefined
+                            : `?min_ts=${previousListenTs}`
+                        }
                       >
                         &larr; Newer
                       </a>
                     </li>
                     <li
                       className={`next ${
-                        !nextListenTs || nextListenTs <= oldestListenTs
-                          ? "disabled"
-                          : ""
+                        isOlderButtonDisabled ? "disabled" : ""
                       }`}
                       style={{ marginLeft: "auto" }}
                     >
@@ -650,16 +674,18 @@ export default class RecentListens extends React.Component<
                           if (e.key === "Enter") this.handleClickOlder();
                         }}
                         tabIndex={0}
+                        href={
+                          isOlderButtonDisabled
+                            ? undefined
+                            : `?max_ts=${nextListenTs}`
+                        }
                       >
                         Older &rarr;
                       </a>
                     </li>
                     <li
                       className={`next ${
-                        listens[listens.length - 1].listened_at <=
-                        oldestListenTs
-                          ? "disabled"
-                          : ""
+                        isOldestButtonDisabled ? "disabled" : ""
                       }`}
                     >
                       <a
@@ -669,6 +695,11 @@ export default class RecentListens extends React.Component<
                           if (e.key === "Enter") this.handleClickOldest();
                         }}
                         tabIndex={0}
+                        href={
+                          isOldestButtonDisabled
+                            ? undefined
+                            : `?min_ts=${oldestListenTs - 1}`
+                        }
                       >
                         &#x21E5;
                       </a>
@@ -685,7 +716,6 @@ export default class RecentListens extends React.Component<
             style={{ position: "-webkit-sticky", position: "sticky", top: 20 }}
           >
             <BrainzPlayer
-              apiService={this.APIService}
               currentListen={currentListen}
               direction={direction}
               listens={listens}
@@ -723,28 +753,44 @@ document.addEventListener("DOMContentLoaded", () => {
     user,
     web_sockets_server_url,
     current_user,
+    sentry_dsn,
   } = reactProps;
+
+  const apiService = new APIServiceClass(
+    api_url || `${window.location.origin}/1`
+  );
+
+  if (sentry_dsn) {
+    Sentry.init({ dsn: sentry_dsn });
+  }
 
   const RecentListensWithAlertNotifications = withAlertNotifications(
     RecentListens
   );
 
+  const globalProps: GlobalAppContextT = {
+    APIService: apiService,
+    currentUser: current_user,
+    spotifyAuth: spotify,
+  };
+
   ReactDOM.render(
     <ErrorBoundary>
-      <RecentListensWithAlertNotifications
-        apiUrl={api_url}
-        latestListenTs={latest_listen_ts}
-        latestSpotifyUri={latest_spotify_uri}
-        listens={listens}
-        mode={mode}
-        oldestListenTs={oldest_listen_ts}
-        profileUrl={profile_url}
-        saveUrl={save_url}
-        spotify={spotify}
-        user={user}
-        webSocketsServerUrl={web_sockets_server_url}
-        currentUser={current_user}
-      />
+      <GlobalAppContext.Provider value={globalProps}>
+        <RecentListensWithAlertNotifications
+          latestListenTs={latest_listen_ts}
+          latestSpotifyUri={latest_spotify_uri}
+          listens={listens}
+          mode={mode}
+          oldestListenTs={oldest_listen_ts}
+          profileUrl={profile_url}
+          saveUrl={save_url}
+          spotify={spotify}
+          user={user}
+          webSocketsServerUrl={web_sockets_server_url}
+          currentUser={current_user}
+        />
+      </GlobalAppContext.Provider>
     </ErrorBoundary>,
     domContainer
   );
